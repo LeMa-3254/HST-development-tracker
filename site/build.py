@@ -200,7 +200,7 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible{
   .toolbar{grid-template-columns:1fr}
   .hero h1{font-size:1.95rem}
   .stat{flex:1 1 40%}
-  /* Seven nav items do not fit a 62px header on a phone. Rather than wrap the header to two
+  /* Six nav items do not fit a 62px header on a phone. Rather than wrap the header to two
      rows (which would break the sticky offset the .tabs bar depends on), let the nav scroll
      horizontally and tighten the labels. */
   .header-inner{gap:10px}
@@ -220,7 +220,6 @@ NAV = [
     ("materials.html", "Materials"),
     ("products.html", "Products"),
     ("regulatory.html", "Regulatory"),
-    ("feed.xml", "RSS"),
 ]
 
 CANONICAL_THEMES = [
@@ -363,7 +362,7 @@ def footer_html(site: dict) -> str:
     return f"""<footer class="site-footer">
   <div class="footer-inner">
     <span>{name} · heat shrink tubing radar</span>
-    <span><a href="archive.html">Archive</a> &nbsp;/&nbsp; <a href="weekly.html">Weekly</a> &nbsp;/&nbsp; <a href="materials.html">Materials</a> &nbsp;/&nbsp; <a href="products.html">Products</a> &nbsp;/&nbsp; <a href="regulatory.html">Regulatory</a> &nbsp;/&nbsp; <a href="feed.xml">RSS</a></span>
+    <span><a href="archive.html">Archive</a> &nbsp;/&nbsp; <a href="weekly.html">Weekly</a> &nbsp;/&nbsp; <a href="materials.html">Materials</a> &nbsp;/&nbsp; <a href="products.html">Products</a> &nbsp;/&nbsp; <a href="regulatory.html">Regulatory</a></span>
   </div>
 </footer>"""
 

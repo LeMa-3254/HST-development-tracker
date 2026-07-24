@@ -47,8 +47,8 @@ crosslinking, and qualification. `pipeline/score.py infer_theme` ladder rewritte
 with academic source types as a final fallback (bootstrap path only).
 
 **Step 6 — site.** Emerald → **amber** (`--signal:#b45309`), with the two hardcoded emerald link
-borders lifted into a `--signal-line` variable rather than re-hardcoded. Nav expanded to 7 items;
-because seven does not fit a 62px header on a phone, the mobile breakpoint makes the nav scroll
+borders lifted into a `--signal-line` variable rather than re-hardcoded. Nav expanded to six section links (RSS was in the nav at first, then removed on request);
+because that many labels do not fit a 62px header on a phone, the mobile breakpoint makes the nav scroll
 horizontally rather than wrap to two rows (wrapping would break the sticky offset the `.tabs` bar
 depends on). `CANONICAL_THEMES` + `canonical_theme()` → the 8 HST themes. The three section pages
 share one `render_section_page` renderer differing only in columns, so they reuse the existing
@@ -77,8 +77,10 @@ this file, and `.env.example` (`HST_CONFIG` / `HST_DB`) written.
   the enabled set 404s or 403s locally.
 - **`make build-site`** — writes `index/archive/weekly/materials/products/regulatory.html` +
   `feed.xml` + `index.json`. Confirmed in the built HTML: amber `--signal:#b45309` present and no
-  emerald left anywhere; the 7-item nav renders `Feed / Archive / Weekly / Materials / Products /
-  Regulatory / RSS`; all three section pages render their empty state (correct — the web-search
+  emerald left anywhere; the nav renders `Feed / Archive / Weekly / Materials / Products /
+  Regulatory` (the RSS link was removed from the nav and footer on request 2026-07-24; `feed.xml`
+  is still generated and still discoverable via the `<link rel="alternate">` in `<head>`); all
+  three section pages render their empty state (correct — the web-search
   sections are skipped without a key).
 - Feed liveness spot-checks: every `company_news` feed returns items. The gzip fallback was verified
   against Mattr (since disabled for irrelevance, but kept as the recorded gzip case).

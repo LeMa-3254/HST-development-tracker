@@ -281,7 +281,8 @@ Structure and layout stay; the domain-coupled parts change:
 - `SITE_CSS` `:root` — emerald → **amber** per the guide (`--signal:#b45309`,
   `--signal-soft:#fdf1e0`, `--signal-ink:#92400e`), navy retained. Also the two hardcoded emerald
   borders on `.prose a` and `table.matreq a`.
-- `NAV` → `Feed / Archive / Weekly / Materials / Products / Regulatory / RSS`. Seven items is wide
+- `NAV` → `Feed / Archive / Weekly / Materials / Products / Regulatory`. (RSS was dropped from the
+  nav and footer after launch; `feed.xml` is still built.) That many items is wide
   for the 62px sticky header — check the mobile breakpoint and shorten labels (`Reg.`) if it wraps.
 - `CANONICAL_THEMES` + the `canonical_theme()` ladder → the 8 HST themes.
 - Keep `render_materials`, retitled ("Materials" / "Each tubing family mapped to its base polymer,
@@ -323,7 +324,7 @@ The seven files in `tests/` embed the robotics vocabulary and section names:
    exercises the keyword-bootstrap path and skips all three web-search sections. Confirm
    `data/tracker.db` is created, items land with `status='included'`, and
    `public/{index,archive,weekly,materials,products,regulatory}.html` + `feed.xml` + `index.json` all
-   build. Open `public/index.html` and check the amber theme and the 7-item nav.
+   build. Open `public/index.html` and check the amber theme and the nav.
 3. **Feed health:** run with `ANTHROPIC_API_KEY` set and read the per-feed errors logged into the
    `runs` table. Prune any `# verify` URL that 404/403s, then re-run. Watch the three `company_news`
    feeds specifically — confirm 3M / Zeus / Mattr each yield items (Mattr is the gzip suspect), since

@@ -1,0 +1,559 @@
+# ============================================================================
+# HST development tracker — targeting.yaml
+# ----------------------------------------------------------------------------
+# Single source of truth for WHAT to look for and WHERE to look.
+# Every source adapter reads this; the relevance/quality gate reads the
+# vocabulary + scoring blocks. Tune precision vs. recall here, not in code.
+#
+# Gate design (differs from SoftRobotics Intelligence's single-axis gate):
+# "heat shrink" is a far narrower anchor than "robot", and genuinely relevant
+# work — FEP extrusion, e-beam crosslinking chemistry, PFAS restrictions on
+# fluoropolymers — often never uses the phrase. So the keyword gate is
+# TWO-AXIS:
+#
+#     hst_core_terms  OR  (adjacent_terms AND context_terms)
+#
+# technical_boost_terms raise the score; the LLM rubric in prompts/relevance.md
+# is the fine filter. See PLAN.md "Open items" — this gate is the main thing to
+# tune after the first live run.
+#
+# WEIGHTING: this tracker's centre of gravity is INDUSTRY, not academia — see the
+# SOURCES tiering note below. Manufacturer and trade-press items sort ahead of
+# journal items in the candidate prefilter, and the rubric bands them higher.
+#
+# Feed URLs marked `# verify` are best-effort patterns most likely to need a
+# check on the first live run; the adapter logs any that 404/403 into the
+# `runs` table so they can be pruned. `disabled_feeds` entries were probed and
+# failed — the recorded reason is there so they are not rediscovered later.
+# ============================================================================
+
+meta:
+  lookback_hours: 168         # API-fetch window (7 days) — matches the weekly run cadence
+  # Hard freshness ceiling applied to EVERY source (incl. RSS feeds, which carry no date
+  # filter of their own): drop any candidate whose publication date is older than this before
+  # it is scored or stored. Items with no publication date pass (they were just fetched).
+  max_age_days: 30
+  timezone: America/Los_Angeles
+  contact_email: "tengteng3254@gmail.com"
+
+# ----------------------------------------------------------------------------
+# SITE IDENTITY — strings used in the header, <title>/meta tags, and RSS feed
+# ----------------------------------------------------------------------------
+site:
+  name: "HST Intelligence"
+  tagline: "Heat shrink tubing R&D, materials, and regulatory intelligence"
+  description: >-
+    A weekly feed plus synthesis of heat shrink tubing developments — product
+    launches, base polymers and crosslinking routes, extrusion and processing,
+    characterization, standards and regulatory action, and the applications
+    pulling the technology forward.
+  url: "https://lema-3254.github.io/HST-development-tracker/"   # GitHub Pages project URL
+  feed_days: 30                                  # home feed + RSS show only items this recent; the Archive keeps everything
+
+# ----------------------------------------------------------------------------
+# TARGETING VOCABULARY
+# Match rule (applied by adapters that support keyword filtering — arXiv,
+# journal/press RSS, company newsrooms, Google News): an item is a CANDIDATE if
+# it hits >=1 hst_core_term, OR hits >=1 adjacent_term AND >=1 context_term.
+# technical_boost_terms raise the relevance score later. exclude_terms hard-drop
+# obvious off-topic matches before the LLM. Keep excludes conservative — the LLM
+# rubric is the real filter; this just saves tokens on clear noise.
+# ----------------------------------------------------------------------------
+targeting:
+  hst_core_terms:             # AXIS 1 — direct anchors; any single hit qualifies outright
+    - heat shrink
+    - heat-shrink
+    - heatshrink
+    - shrink tubing
+    - shrinkable tubing
+    - shrink sleeve
+    - shrink sleeving
+    - dual-wall tubing
+    - dual wall tubing
+    - adhesive-lined tubing
+    - adhesive lined tubing
+    - cross-linked polyolefin
+    - crosslinked polyolefin
+    - radiation cross-linking
+    - radiation crosslinking
+    - e-beam crosslinking
+    - electron beam crosslinking
+    - expansion ratio
+    - recovered wall thickness
+    - Raychem
+
+  adjacent_terms:             # AXIS 2a — polymer / process / property vocabulary
+    - fluoropolymer
+    - PTFE
+    - FEP
+    - PFA
+    - ETFE
+    - PVDF
+    - PEEK
+    - polyolefin
+    - polyethylene
+    - PFAS
+    - PFAS-free
+    - shape-memory polymer
+    - shape memory polymer
+    - gel fraction
+    - crosslink density
+    - crosslinking
+    - irradiation dose
+    - electron beam irradiation
+    - extrusion
+    - melt extrusion
+    - twin-screw compounding
+    - dielectric strength
+    - thermal aging
+    - flame retardant
+    - halogen-free
+
+  context_terms:              # AXIS 2b — where heat shrink tubing actually lives
+    - wire
+    - cable
+    - wire harness
+    - cable harness
+    - cable jacket
+    - insulation
+    - sleeving
+    - splice
+    - connector
+    - terminal
+    - strain relief
+    - catheter shaft
+    - catheter
+    - implantable lead
+    - busbar
+    - bus bar
+    - EMI shielding
+    - battery pack
+    - wire marking
+
+  # +score, and the secondary sort within each source group when the max_candidates cap bites.
+  #
+  # DELIBERATELY EXCLUDES generic characterization vocabulary (DMA, DSC, TGA, FTIR, SEM/EDX,
+  # tensile, Instron). Those appear in essentially every polymer paper ever written, so they
+  # correlate with "this is an academic abstract", not with "this is about heat shrink tubing" —
+  # they were handing journal items a permanent boost while telling us nothing about relevance.
+  # What is kept correlates specifically with HST: the named standards a tubing product is
+  # actually qualified to, and the process/property parameters unique to a shrinkable product.
+  technical_boost_terms:
+    # named standards a tubing product is qualified to (guide topic 5)
+    - UL 224
+    - UL 224 VW-1
+    - MIL-I-23053
+    - MIL-DTL-23053
+    - IEC 60684
+    - SAE AS23053
+    - AMS-DTL-23053
+    - ISO 6722
+    - ASTM D2671
+    - RoHS
+    - REACH
+    - VW-1 flame
+    # process + property parameters specific to a shrinkable product
+    - shrink ratio
+    - expansion ratio
+    - recovery temperature
+    - shrink temperature
+    - continuous use temperature
+    - recovered wall thickness
+    - longitudinal change
+    - gel fraction
+    - gel content
+    - crosslink density
+    - irradiation dose
+    - e-beam dose
+    - dual-wall
+    - adhesive liner
+    - PFAS-free
+
+  exclude_terms:              # hard-drop clearly off-scope matches (kept conservative)
+    - shrink wrap packaging
+    - shrink-wrap packaging
+    - shrinkflation
+    - stock market
+    - cryptocurrency
+    - box office
+    - sports betting
+
+  # Fixed theme taxonomy — the scoring model MUST tag each kept item with exactly one of these
+  # labels (or "Other"). These are the guide's 8 topic areas, used verbatim as feed themes.
+  themes:
+    - Products & Launches
+    - Materials & Formulations
+    - Manufacturing & Processing
+    - Characterization & Testing
+    - Standards & Regulatory
+    - Applications
+    - Market & Supply Chain
+    - Academic R&D
+
+# ----------------------------------------------------------------------------
+# SOURCES
+#
+# TIERING IS DELIBERATELY INVERTED relative to SoftRobotics Intelligence, where the
+# academic firehoses were Tier A. Heat shrink tubing advances in industry first: the
+# tubing families, wall constructions, temperature ratings and PFAS-free reformulations
+# that matter to a tubing engineer are announced by manufacturers and covered by trade
+# press months-to-years before they appear in a journal. Academic work is in scope and
+# useful, but it is the supporting cast here, not the headline.
+#
+# So:  company_news + web_news = Tier A   (the primary signal)
+#      arxiv / openalex / crossref = Tier B   (supporting)
+#      google_news = Tier C   (broad, noisy, leans on the gate)
+#
+# Tier feeds TIER_POINTS in pipeline/score.py's bootstrap scoring (A +15, B +8, C 0),
+# and the candidate prefilter in pipeline/run.py sorts industry sources ahead of
+# academic ones before the max_candidates cap bites. See prompts/relevance.md for the
+# same weighting expressed in the LLM rubric, which is what governs a keyed run.
+# ----------------------------------------------------------------------------
+sources:
+
+  arxiv:
+    enabled: true
+    tier: B
+    api_base: "http://export.arxiv.org/api/query"   # stable; RSS alt: https://rss.arxiv.org/rss/<cat>
+    categories:
+      - cond-mat.mtrl-sci     # materials science — radiation effects on polymers, crosslinking
+      - cond-mat.soft         # soft condensed matter — polymer physics, shape-memory behaviour
+      - physics.app-ph        # applied physics — dielectrics, insulation, device-level work
+    # logic: pull new submissions per category, keep those whose title/abstract
+    # satisfy the two-axis gate above.
+    filter_with_vocabulary: true
+
+  openalex:
+    enabled: true
+    tier: B
+    api_base: "https://api.openalex.org/works"
+    # OpenAlex `search` covers title+abstract+fulltext. Combine with a date filter.
+    # Deliberately ONE clause, not an AND of two. OpenAlex parses `A AND B` into a strict
+    # AND-of-ORs over full text; with a 7-day window on a niche topic that returned literally
+    # zero on the first offline run, while the single clause returns results. The local
+    # two-axis gate does the second-axis job downstream anyway, so the narrowing is redundant
+    # here and only costs recall.
+    search: "(heat shrink tubing OR heat shrinkable tubing OR shrinkable tubing OR crosslinked polyolefin OR radiation crosslinking OR electron beam crosslinking OR fluoropolymer tubing OR PTFE tubing OR shape memory polymer OR wire insulation OR cable insulation OR dielectric aging)"
+    filters:
+      from_publication_date: "{lookback_date}"   # adapter fills from lookback_hours
+    per_page: 200
+    mailto_from_meta: true
+
+  crossref:
+    enabled: true
+    tier: B
+    api_base: "https://api.crossref.org/works"
+    query: "heat shrink tubing crosslinked polyolefin radiation crosslinking fluoropolymer tubing shape memory polymer wire cable insulation dielectric aging"
+    filters:
+      from-pub-date: "{lookback_date}"
+      type: "journal-article"
+    rows: 100
+
+  # -- DISABLED 2026-07-24. The feeds are live and generous — Polymer 99, J. Applied Polymer
+  #    Science 86, Polymer Engineering & Science 108, Advanced Materials 329 = 622 raw items on the
+  #    offline verification run — but ALL 622 failed the gate (core_hit 0, adjacent_hit 28,
+  #    context_hit 14, both 0).
+  #
+  #    The cause is the shape of the data, not the targeting. ScienceDirect and Wiley put
+  #    bibliographic metadata in the RSS <description>, not the abstract — a typical one reads
+  #    "Publication date: 13 October 2026 Source: Polymer, Volume 363 Author(s): ...". So the gate
+  #    judges on the TITLE alone, and a polymer-journal title almost never carries both a polymer
+  #    term and a wire/cable context word.
+  #
+  #    Crossref and OpenAlex index these same journals and DO carry real abstracts — Crossref
+  #    supplied every included item on the verification run — so disabling this group loses no
+  #    coverage, only four wasted HTTP fetches a week. Same call, and same reason, as the ACS feeds
+  #    below.
+  #
+  #    To revisit: this group only becomes useful if the gate is relaxed for Tier A academic
+  #    sources (venue as the quality filter, `core OR adjacent`), which would admit ~28 items/week —
+  #    a sample of which are genuinely off-topic, so it trades precision and tokens for recall.
+  journal_rss:               # venue = quality filter; take all, gate by the two-axis vocabulary
+    enabled: false
+    tier: A
+    feeds: []
+    disabled_feeds:
+      - name: "Polymer (ScienceDirect)"
+        url: "https://rss.sciencedirect.com/publication/science/00323861"
+        reason: "Feed is live (99 items on probe 2026-07-24) but the RSS description carries bibliographic metadata, not the abstract, so the gate sees title-only and admits nothing. Covered via Crossref/OpenAlex, which have real abstracts."
+      - name: "Journal of Applied Polymer Science"
+        url: "https://onlinelibrary.wiley.com/action/showFeed?jc=10974628&type=etoc&feed=rss"
+        reason: "Live (86 items) but metadata-only descriptions; same as above. Covered via Crossref/OpenAlex."
+      - name: "Polymer Engineering & Science"
+        url: "https://onlinelibrary.wiley.com/action/showFeed?jc=15482634&type=etoc&feed=rss"
+        reason: "Live (108 items) but metadata-only descriptions; same as above. Covered via Crossref/OpenAlex."
+      - name: "Advanced Materials"
+        url: "https://onlinelibrary.wiley.com/action/showFeed?jc=15214095&type=etoc&feed=rss"
+        reason: "Live (329 items) but metadata-only descriptions, and the broadest/least HST-specific of the set. Covered via Crossref/OpenAlex."
+      - name: "npj Computational Materials"
+        url: "https://www.nature.com/npjcompumats.rss"
+        reason: "HTTP 200 but zero <item> elements on probe (2026-07-24) — an empty placeholder feed. Also the least HST-relevant of the set; it was carried over from SoftRobotics Intelligence."
+      - name: "Macromolecules (ACS)"
+        url: "https://pubs.acs.org/action/showFeed?type=etoc&feed=rss&jc=mamobx"
+        reason: "ACS RSS returns HTTP 403 from CI runners (carried over from SoftRobotics Intelligence); covered via OpenAlex/Crossref instead."
+      - name: "ACS Applied Materials & Interfaces"
+        url: "https://pubs.acs.org/action/showFeed?type=etoc&feed=rss&jc=aamick"
+        reason: "Same ACS 403; covered via OpenAlex/Crossref instead."
+
+  # -- Tier A: industry trade press. Promoted from Tier C — for HST these titles are the
+  #    curated firehose that journals are for other domains, and they carry launches,
+  #    qualification news and standards movement first. All probed live 2026-07. --
+  web_news:
+    enabled: true
+    tier: A
+    feeds:
+      - name: "PlasticsToday"
+        url: "https://www.plasticstoday.com/rss.xml"
+      - name: "Plastics Technology"
+        url: "https://www.ptonline.com/rss/articles"
+      - name: "Medical Design & Outsourcing"
+        url: "https://www.medicaldesignandoutsourcing.com/feed/"
+      - name: "Wire & Cable Technology International"
+        url: "https://wiretech.com/feed/"
+      - name: "IWCS"
+        url: "https://iwcs.org/feed/"
+      - name: "Wiring Harness News"
+        url: "https://www.wiringharnessnews.com/feed/"
+      - name: "Connector Supplier"
+        url: "https://www.connectorsupplier.com/feed/"
+    disabled_feeds:
+      - name: "C&EN (ACS)"
+        url: "https://cen.acs.org/rss/all.xml"
+        reason: "404 on probe (2026-07); /rss/materials.xml also 404. Consistent with the ACS feed unreliability noted above."
+
+  # -- Tier A: manufacturer newsrooms.
+  #
+  #    CALIBRATE EXPECTATIONS HERE. The 2026-07-24 verification run showed these are a thin
+  #    weekly signal: tubing vendors post a handful of times a YEAR, not daily, and the big
+  #    conglomerates' newsrooms are investor-relations channels where heat shrink never
+  #    appears. Of the original three, 3M returned 0/5 gated items (Q2 results, an AI
+  #    partnership, Scotch tape) and Mattr 0/10 (ESG reports, CEO interviews) — both are now
+  #    disabled. The group is retained as a cheap early-warning net on the vendors that do
+  #    publish real product content, not as the primary launch feed.
+  #
+  #    Launch coverage actually comes from two other places: the launch-shaped google_news
+  #    queries below, and the Notable Products web-search section (prompts/notable_products.md),
+  #    which is why the plan included both.
+  company_news:
+    enabled: true
+    tier: A
+    # Overrides meta.max_age_days (30) for ingestion. At 30 days this group returned literally
+    # nothing — every gated item was months old. A vendor product announcement does not stop
+    # being news at five weeks when the vendor only posts quarterly.
+    max_age_days: 180
+    # ...and the matching home-feed window, overriding site.feed_days (30) for this source only.
+    # Without it a vendor's one heat shrink post of the quarter is ingested straight into the
+    # Archive and never reaches the front page, which is where a tubing engineer wants it.
+    feed_days: 180
+    feeds:
+      - name: "Zeus Company"
+        # PTFE/FEP/PFA heat shrink, medical tubing. A blog rather than a newsroom — posts a
+        # few times a year, but the content is on-topic (2/10 gated on probe).
+        url: "https://www.zeusinc.com/feed/"
+      - name: "DSG-Canusa"
+        # The tubing brand's own feed — 8/10 gated on probe, the best hit rate of any vendor
+        # feed found. Mostly trade-show and application posts rather than SKU launches.
+        url: "https://www.dsgcanusa.com/feed/"
+      - name: "Putnam Plastics"
+        # Medical tubing extruder; 4/10 gated, including "Expands Portfolio to Include FEP
+        # Heat Shrink" — exactly the shape of item this group exists for.
+        url: "https://www.putnamplastics.com/feed/"
+    disabled_feeds:                        # ignored by the adapter; kept as documentation
+      - name: "3M"
+        url: "https://news.3m.com/press-releases?pagetemplate=rss"
+        reason: "Feed works (the ?pagetemplate=rss query form; the bare /rss and /rss/all-news paths return HTML) but it is the CORPORATE newsroom of a conglomerate: 0 of 5 items passed the gate on probe 2026-07-24 (Q2 earnings, a Microsoft AI partnership, Scotch Kids Tape, an investor event). 3M heat shrink is covered via google_news instead."
+      - name: "Mattr (DSG-Canusa parent)"
+        url: "https://www.mattr.com/feed/"
+        reason: "Corporate/IR feed — 0 of 10 gated on probe 2026-07-24 (ESG reports, CEO interviews, earnings dates). Superseded by the DSG-Canusa brand feed above, which carries the actual tubing content. (Kept as the gzip test case: this feed serves gzip bytes with no Accept-Encoding request header, which is why fetch_url sniffs for it.)"
+      - name: "Qualtek"
+        url: "https://www.qualtekusa.com/feed/"
+        reason: "Effectively dormant — newest post 2023-04-12 on probe 2026-07-24. Covered via google_news."
+      - name: "Gremtek"
+        url: "https://www.gremtek.com/feed/"
+        reason: "Live and on-topic (heat shrink sleeving) but French-language, and the targeting vocabulary is English-only, so 0 of 10 passed the gate. Would need French terms in hst_core_terms to be usable."
+      - name: "TE Connectivity"
+        url: "https://www.te.com/en/rss/news.xml"
+        reason: "403 on probe (2026-07) — blocks non-browser agents. Covered via google_news."
+      - name: "HellermannTyton"
+        reason: "404 on probe (2026-07); no public feed found. Covered via google_news."
+      - name: "Alpha Wire"
+        reason: "404 on probe (2026-07). Covered via google_news."
+      - name: "Panduit"
+        reason: "404 on probe (2026-07). Covered via google_news."
+      - name: "Sumitomo Electric"
+        reason: "404 on probe (2026-07). Covered via google_news."
+      - name: "Molex / Nitto Denko / Junkosha"
+        reason: "No response on probe (2026-07). Covered via google_news."
+      - name: "Nordson MEDICAL"
+        reason: "403 on probe (2026-07). Covered via google_news."
+      - name: "Digi-Key new products"
+        reason: "403 on probe (2026-07), Cloudflare. Covered via google_news."
+
+  # -- Tier C: open web / news (query mode — noisy, leans on the gate) --
+  google_news:
+    enabled: true
+    tier: C
+    rss_template: "https://news.google.com/rss/search?q={query}&hl=en-US&gl=US&ceid=US:en"
+    queries:
+      # --- the guide's 8 topic-area queries, verbatim ---
+      - "heat shrink tubing new product launch"
+      - "PFAS-free heat shrink tubing material"
+      - "heat shrink tubing extrusion electron beam crosslinking"
+      - "heat shrink tubing DMA DSC characterization"
+      - "heat shrink tubing UL 224 PFAS REACH regulation"
+      - "heat shrink tubing medical catheter EV busbar"
+      - "heat shrink tubing market TE Connectivity Zeus DSG-Canusa"
+      - "heat shrink tubing polymer research journal"
+      # --- per-company launch-shaped queries (most of these vendors have no usable RSS) ---
+      # the guide's seven
+      - "TE Connectivity Raychem heat shrink tubing"
+      - "3M heat shrink tubing new product"
+      - "HellermannTyton heat shrink tubing"
+      - "Alpha Wire heat shrink tubing"
+      - "Zeus heat shrink tubing"
+      - "DSG-Canusa heat shrink tubing"
+      - "Cobalt heat shrink tubing"
+      # widened vendor landscape — heat shrink and the fluoropolymer tubing feeding it
+      - "Sumitomo heat shrink new product"
+      - "Sumitube heat shrink tubing"
+      - "Molex heat shrink tubing"
+      - "Panduit heat shrink tubing"
+      - "Nitto Denko fluoropolymer tubing"
+      - "Junkosha PTFE tubing new product"
+      - "Chukoh Chemical fluoropolymer tubing"
+      - "Insultab heat shrink tubing"
+      - "Qualtek heat shrink tubing"
+      - "Gremtek heat shrink sleeve"
+      - "Parker Chomerics heat shrink shielding"
+      # medical-tubing extruders
+      - "Nordson MEDICAL heat shrink tubing"
+      - "Putnam Plastics heat shrink tubing"
+      - "Optinova fluoropolymer tubing"
+      - "Advanced Polymers catheter tubing"
+      - "Teleflex Medical OEM tubing"
+      # --- standards bodies & regulators (no reliable RSS; also covered by the
+      #     Regulatory Watch web-search section) ---
+      - "UL 224 heat shrink tubing standard"
+      - "MIL-I-23053 heat shrink specification"
+      - "EPA PFAS fluoropolymer rule"
+      - "ECHA REACH PFAS restriction fluoropolymer"
+      - "SAE AS23053 tubing specification"
+      - "FDA medical tubing guidance polymer"
+      # --- trade-show windows where launches cluster ---
+      - "wire Dusseldorf heat shrink tubing"
+      - "IWCS cable symposium heat shrink"
+      - "MD&M West medical tubing launch"
+      - "productronica cable processing"
+
+  # -- University press rooms: polymer research reaches this tracker via arXiv/OpenAlex/Crossref
+  #    with far better precision. Adapter is retained (see pipeline/ingest.py) if this is wanted
+  #    later; off by default to keep the candidate budget on product and regulatory news. --
+  university_news:
+    enabled: false
+    tier: C
+    feeds: []
+
+  # -- Company blogs beyond the three newsrooms above mostly lack clean RSS; they enter via
+  #    google_news. Disabled. --
+  org_blogs:
+    enabled: false
+    tier: B
+    feeds: []
+
+  # -- Tier D: social (build last) --
+  social:
+    enabled: false
+
+# ----------------------------------------------------------------------------
+# SCORING GATE — Claude relevance + quality scoring
+# ----------------------------------------------------------------------------
+scoring:
+  model: "claude-haiku-4-5-20251001"   # cheap scoring
+  rubric_prompt: "prompts/relevance.md"
+  scale: 100                            # scores are 0–100
+  # Cap items sent to the model per run (speed + cost). 250 rather than SoftRobotics' 200
+  # because the widened company/regulator query set feeds more candidates in. The prefilter
+  # in pipeline/run.py sorts technical-first then by recency before truncating, so the cap
+  # drops the weakest Google News noise rather than real product news. Watch `candidates`
+  # vs. `scored` in the `runs` table — if candidates routinely slam this cap, tighten the
+  # queries before raising it further.
+  max_candidates: 250
+  # Keep items (by relevance) >= this. Lowered 70 -> 50 after the first live run, which returned
+  # only 2 items: heat shrink tubing does not generate 20 RSS-visible developments a week, so a
+  # 70 bar left the front page nearly bare. 50 is chosen to line up with a band boundary in
+  # prompts/relevance.md rather than being an arbitrary number — it sits inside the 45-65
+  # "general polymer research with no direct tubing application" band, so solid research is
+  # admitted, while the 40-54 "borderline/thin" items mostly fall out and the <40 pure-noise band
+  # (market-forecast listicles, finance) stays excluded entirely.
+  min_score: 50
+  # "High signal" featured section requires BOTH bars: relevance >= high_relevance_score AND
+  # quality >= high_quality_score. The per-card score badge highlights on relevance >= high_relevance_score.
+  high_relevance_score: 80
+  high_quality_score: 80
+
+# ----------------------------------------------------------------------------
+# ENRICHMENT — concise item summaries after scoring + dedup
+# ----------------------------------------------------------------------------
+enrich:
+  model: "claude-sonnet-4-5-20250929"   # stronger tier for user-facing summaries
+  prompt: "prompts/enrich.md"
+  max_items_per_run: 25                  # cost cap; ~enough for the weekly quality set
+
+# ----------------------------------------------------------------------------
+# WEEKLY SYNTHESIS — trend narrative over the week's included items
+# ----------------------------------------------------------------------------
+synth:
+  model: "claude-sonnet-4-5-20250929"   # stronger tier for weekly synthesis
+  prompt: "prompts/synth.md"
+  # How far back the synthesis reads, ending at the last complete week. 0/unset = the strict
+  # Mon-Sun week. Heat shrink tubing is too low-volume for that: on the first live run
+  # (2026-07-24) the two included items were dated 2026-07-06 and 2026-03-04, either side of a
+  # 2026-07-13..19 window, so the Weekly page rendered "No included items for this week yet."
+  # 30 days keeps the page worth reading without letting it go stale.
+  lookback_days: 30
+
+# ----------------------------------------------------------------------------
+# WEEKLY SECTIONS — LLM web-search stages unique to this tracker (run weekly).
+# These need live web knowledge (not RSS), so they use the Anthropic server-side
+# web_search tool rather than the feed pipeline. All three are stored in SQLite
+# and rendered as site pages:
+#   - material_requirements -> materials.html
+#   - notable_products      -> products.html
+#   - regulatory_watch      -> regulatory.html
+# Regulatory Watch is load-bearing, not decorative: UL, SAE, IEC, EPA, ECHA and
+# FDA have no reliable RSS, so this section is the only path by which their
+# activity reaches the site.
+# ----------------------------------------------------------------------------
+sections:
+  material_requirements:
+    enabled: true
+    model: "claude-sonnet-4-5-20250929"
+    prompt: "prompts/material_requirements.md"
+    max_searches: 6                      # web_search tool-use budget
+  notable_products:
+    enabled: true
+    model: "claude-sonnet-4-5-20250929"
+    prompt: "prompts/notable_products.md"
+    # Higher budget than the other two sections. Vendor launches are poorly indexed — the first
+    # live run (2026-07-24) spent 6 searches and returned an empty table, then 1 row. Materials
+    # and Regulatory draw on well-documented sources and fill easily at 6; this one needs to try
+    # several angles (named vendor, trade press, trade-show window, capability framing).
+    max_searches: 12
+  regulatory_watch:
+    enabled: true
+    model: "claude-sonnet-4-5-20250929"
+    prompt: "prompts/regulatory_watch.md"
+    max_searches: 6
+
+# ----------------------------------------------------------------------------
+# DEDUP / NOVELTY — the "don't repeat" layer
+# ----------------------------------------------------------------------------
+dedup:
+  # Local embeddings by default (CPU fastembed / ONNX, no PyTorch) so only the Anthropic key is required.
+  # To use Voyage instead: set embedding_provider: voyage and embedding_model: voyage-3 (needs VOYAGE_API_KEY).
+  # Provider is inferred from the model name when embedding_provider is unset (voyage* => Voyage, else local).
+  embedding_provider: "local"
+  embedding_model: "BAAI/bge-small-en-v1.5"
+  similarity_threshold: 0.85            # >= this vs. 30-day memory => duplicate
+  window_days: 30                       # rolling memory horizon
+  on_duplicate: "drop"                  # or "tag_as_update"

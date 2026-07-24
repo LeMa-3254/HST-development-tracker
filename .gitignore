@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+.env
+.DS_Store
+
+# Generated site. The weekly workflow rebuilds it and uploads it as the Pages
+# artifact, so the committed copy would only ever be stale build output.
+# (data/tracker.db is NOT ignored — the archive is committed back by the workflow.)
+public/

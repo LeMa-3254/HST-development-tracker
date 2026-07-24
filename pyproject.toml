@@ -1,0 +1,18 @@
+[project]
+name = "hst-development-tracker"
+version = "0.1.0"
+description = "Heat shrink tubing R&D, materials, and regulatory tracker for polymer engineers"
+requires-python = ">=3.11"
+dependencies = [
+  "anthropic>=0.52.0",
+  "jinja2>=3.1.0",
+  "pyyaml>=6.0.0",
+  "fastembed>=0.3.0",
+]
+
+[project.optional-dependencies]
+# Only needed if dedup.embedding_provider is set to "voyage" (otherwise local embeddings are used).
+voyage = ["voyageai>=0.3.0"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

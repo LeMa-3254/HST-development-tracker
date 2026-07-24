@@ -78,8 +78,10 @@ this file, and `.env.example` (`HST_CONFIG` / `HST_DB`) written.
 - **`make build-site`** — writes `index/archive/weekly/materials/products/regulatory.html` +
   `feed.xml` + `index.json`. Confirmed in the built HTML: amber `--signal:#b45309` present and no
   emerald left anywhere; the nav renders `Feed / Archive / Weekly / Materials / Products /
-  Regulatory` (the RSS link was removed from the nav and footer on request 2026-07-24; `feed.xml`
-  is still generated and still discoverable via the `<link rel="alternate">` in `<head>`); all
+  Regulatory`. **RSS was removed entirely on request (2026-07-24)** — nav/footer links, `feed.xml`,
+  `render_rss`, and the `<link rel="alternate">` tag. Removing only the visible links was not
+  enough: that tag is what makes browsers and reader extensions surface an RSS affordance on a
+  page with no visible link, which is what was still showing. `index.json` remains. All
   three section pages render their empty state (correct — the web-search
   sections are skipped without a key).
 - Feed liveness spot-checks: every `company_news` feed returns items. The gzip fallback was verified

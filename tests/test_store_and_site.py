@@ -70,11 +70,15 @@ class StoreTests(unittest.TestCase):
         }
 
         html = site_build.render_index(config, [item])
-        rss = site_build.render_rss(config, [item])
 
         self.assertIn("Dual-wall heat shrink tubing for EV busbars", html)
         self.assertIn("Products &amp; Launches", html)
-        self.assertIn("https://example.github.io/", rss)
+        # RSS was removed entirely — no feed, no nav/footer link, and no <link rel="alternate">
+        # discovery tag (that tag is what makes browsers show an RSS affordance on a page with
+        # no visible link).
+        self.assertNotIn("application/rss+xml", html)
+        self.assertNotIn("feed.xml", html)
+        self.assertFalse(hasattr(site_build, "render_rss"))
 
     def test_archive_render_includes_filters_and_items(self):
         config = {

@@ -14,6 +14,10 @@ for the build spec and the reasoning behind the domain adaptations.
 
 A static site with:
 - **Feed** — the week's ranked, scored developments, grouped by theme.
+
+There is no RSS feed: the nav/footer links, `feed.xml`, and the `<link rel="alternate">` discovery
+tag were all removed on request. `index.json` is still published for programmatic access to the
+full archive.
 - **Archive** — searchable/filterable full history.
 - **Weekly** — a trend synthesis clustered by theme.
 - **Materials** — each tubing family mapped to its base polymer, crosslinking route, numeric property

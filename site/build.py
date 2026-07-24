@@ -263,7 +263,10 @@ def build_site(config_path: str = "targeting.yaml", db_path: str = "data/tracker
         json.dumps([dict(item) for item in items], indent=2, sort_keys=True),
         encoding="utf-8",
     )
-    (output / "feed.xml").write_text(render_rss(config, recent), encoding="utf-8")
+    # No RSS. The feed, its nav/footer links, and the <link rel="alternate"> discovery tag were
+    # all removed on request — the alternate tag is what makes browsers and reader extensions
+    # show an RSS affordance even with no visible link on the page. index.json remains for
+    # anyone wanting the archive programmatically.
 
 
 def feed_days_for(item, config: dict) -> int:
@@ -328,7 +331,6 @@ def document(site: dict, *, page_title: str, active: str, main_html: str, body_s
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{escape(page_title)}</title>
   <meta name="description" content="{escape(site.get("description", ""))}">
-  <link rel="alternate" type="application/rss+xml" title="{escape(site.get("name", ""))} RSS" href="feed.xml">
   {FONTS}
   <style>{SITE_CSS}</style>
 </head>
@@ -925,29 +927,6 @@ def format_theme(value: str) -> str:
 
 def json_for_script(value) -> str:
     return json.dumps(value, sort_keys=True).replace("</", "<\\/")
-
-
-def render_rss(config: dict, items: list) -> str:
-    site = config["site"]
-    entries = "\n".join(
-        f"""  <item>
-    <title>{escape(item["title"])}</title>
-    <link>{escape(item["url"])}</link>
-    <guid>{escape(item["id"])}</guid>
-    <description>{escape(field(item, "summary") or field(item, "abstract") or "")}</description>
-  </item>"""
-        for item in items[:50]
-    )
-    return f"""<?xml version="1.0" encoding="UTF-8" ?>
-<rss version="2.0">
-<channel>
-  <title>{escape(site["name"])}</title>
-  <link>{escape(site["url"])}</link>
-  <description>{escape(site["description"])}</description>
-{entries}
-</channel>
-</rss>
-"""
 
 
 def main() -> int:

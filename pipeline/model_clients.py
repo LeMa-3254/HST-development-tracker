@@ -4,12 +4,30 @@ import json
 import os
 from pathlib import Path
 import re
+import sys
 import time
 from typing import Any
 
 
 class ApiUnavailable(RuntimeError):
     pass
+
+
+_WARNED: set[str] = set()
+
+
+def warn_once(key: str, message: str) -> None:
+    """Print a degradation notice to stderr the first time it happens.
+
+    The build_* helpers below turn an unavailable client into None, and callers
+    quietly fall back (keyword bootstrap for scoring, skipped sections). Without
+    this the run still exits 0 and looks like a normal one, so the warning is the
+    only signal that the output is degraded.
+    """
+    if key in _WARNED:
+        return
+    _WARNED.add(key)
+    print(f"WARNING: {message}", file=sys.stderr, flush=True)
 
 
 def read_prompt(path: str) -> str:
@@ -221,21 +239,28 @@ class VoyageEmbeddingClient:
 def build_anthropic_client() -> AnthropicModelClient | None:
     try:
         return AnthropicModelClient()
-    except ApiUnavailable:
+    except ApiUnavailable as exc:
+        warn_once(
+            "anthropic",
+            f"{exc}. Scoring and enrichment fall back to the keyword bootstrap and "
+            "the synthesis sections are skipped.",
+        )
         return None
 
 
 def build_voyage_client() -> VoyageEmbeddingClient | None:
     try:
         return VoyageEmbeddingClient()
-    except ApiUnavailable:
+    except ApiUnavailable as exc:
+        warn_once("voyage", f"{exc}. Dedup embeddings are unavailable.")
         return None
 
 
 def build_local_embedding_client(model_name: str) -> LocalEmbeddingClient | None:
     try:
         return LocalEmbeddingClient(model_name)
-    except ApiUnavailable:
+    except ApiUnavailable as exc:
+        warn_once("local-embeddings", f"{exc}. Dedup embeddings are unavailable.")
         return None
 
 

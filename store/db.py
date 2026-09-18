@@ -164,18 +164,26 @@ def _upsert_section(
     db.commit()
 
 
-def _latest_section(db: sqlite3.Connection, table: str) -> dict[str, Any] | None:
-    row = db.execute(
-        f"SELECT * FROM {table} ORDER BY week_start DESC LIMIT 1"
-    ).fetchone()
-    if row is None:
-        return None
+def _section_row(row: sqlite3.Row) -> dict[str, Any]:
     try:
         payload = json.loads(row["payload_json"])
     except (TypeError, json.JSONDecodeError):
         payload = {}
     return {"week_start": row["week_start"], "week_end": row["week_end"],
             "generated_at": row["generated_at"], "payload": payload}
+
+
+def _latest_section(db: sqlite3.Connection, table: str) -> dict[str, Any] | None:
+    row = db.execute(
+        f"SELECT * FROM {table} ORDER BY week_start DESC LIMIT 1"
+    ).fetchone()
+    return _section_row(row) if row is not None else None
+
+
+def _all_sections(db: sqlite3.Connection, table: str) -> list[dict[str, Any]]:
+    """Every compiled week, newest first. The section pages render the full history,
+    not just the current week."""
+    return [_section_row(row) for row in db.execute(f"SELECT * FROM {table} ORDER BY week_start DESC")]
 
 
 def upsert_material_requirements(db: sqlite3.Connection, *, week_start: str, week_end: str, payload: dict[str, Any]) -> None:
@@ -186,6 +194,10 @@ def latest_material_requirements(db: sqlite3.Connection) -> dict[str, Any] | Non
     return _latest_section(db, "material_requirements")
 
 
+def all_material_requirements(db: sqlite3.Connection) -> list[dict[str, Any]]:
+    return _all_sections(db, "material_requirements")
+
+
 def upsert_notable_products(db: sqlite3.Connection, *, week_start: str, week_end: str, payload: dict[str, Any]) -> None:
     _upsert_section(db, "notable_products", week_start=week_start, week_end=week_end, payload=payload)
 
@@ -194,12 +206,20 @@ def latest_notable_products(db: sqlite3.Connection) -> dict[str, Any] | None:
     return _latest_section(db, "notable_products")
 
 
+def all_notable_products(db: sqlite3.Connection) -> list[dict[str, Any]]:
+    return _all_sections(db, "notable_products")
+
+
 def upsert_regulatory_watch(db: sqlite3.Connection, *, week_start: str, week_end: str, payload: dict[str, Any]) -> None:
     _upsert_section(db, "regulatory_watch", week_start=week_start, week_end=week_end, payload=payload)
 
 
 def latest_regulatory_watch(db: sqlite3.Connection) -> dict[str, Any] | None:
     return _latest_section(db, "regulatory_watch")
+
+
+def all_regulatory_watch(db: sqlite3.Connection) -> list[dict[str, Any]]:
+    return _all_sections(db, "regulatory_watch")
 
 
 def recent_embedding_memory(db: sqlite3.Connection, *, window_days: int) -> list[dict[str, Any]]:

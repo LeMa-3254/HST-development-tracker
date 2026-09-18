@@ -23,7 +23,12 @@ A static site with:
   tubing manufacturer.
 
 The last three are generated weekly via LLM web search (the Anthropic server-side `web_search` tool),
-not from RSS. Regulatory Watch is load-bearing rather than decorative: the standards bodies and
+not from RSS. They are **cumulative**: each page renders every week ever compiled, newest first, with
+a Week column and a week/keyword filter, so a launch or a standards change stays on the page after its
+week rolls off. A subject that repeats across weeks (the same tubing family, the same open standard)
+is shown once, at the most recent week that reported it.
+
+Regulatory Watch is load-bearing rather than decorative: the standards bodies and
 regulators publish no reliable feeds, so that section is the only path by which their activity reaches
 the site.
 

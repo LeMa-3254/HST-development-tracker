@@ -9,6 +9,9 @@ from pipeline.sections import (
     generate_regulatory_watch,
 )
 from store.db import (
+    all_material_requirements,
+    all_notable_products,
+    all_regulatory_watch,
     connect,
     init_db,
     latest_material_requirements,
@@ -149,6 +152,34 @@ class SectionStoreTests(unittest.TestCase):
         self.assertEqual(rows, 1)
         self.assertEqual(products["payload"]["products"][0]["product"], "second")
 
+    def test_all_sections_return_every_week_newest_first(self):
+        """The section pages are cumulative, so the store must hand back the whole history."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "tracker.db"
+            with connect(db_path) as db:
+                init_db(db)
+                for week_start, week_end in (("2026-06-22", "2026-06-28"), ("2026-06-29", "2026-07-05")):
+                    upsert_material_requirements(db, week_start=week_start, week_end=week_end,
+                                                 payload={"materials": [{"application": week_start}]})
+                    upsert_notable_products(db, week_start=week_start, week_end=week_end,
+                                            payload={"products": [{"product": week_start}]})
+                    upsert_regulatory_watch(db, week_start=week_start, week_end=week_end,
+                                            payload={"regulations": [{"regulation": week_start}]})
+                mats = all_material_requirements(db)
+                products = all_notable_products(db)
+                regulations = all_regulatory_watch(db)
+
+        for sections in (mats, products, regulations):
+            self.assertEqual([s["week_start"] for s in sections], ["2026-06-29", "2026-06-22"])
+        self.assertEqual(mats[1]["payload"]["materials"][0]["application"], "2026-06-22")
+
+    def test_all_sections_are_empty_before_any_run(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "tracker.db"
+            with connect(db_path) as db:
+                init_db(db)
+                self.assertEqual(all_material_requirements(db), [])
+
 
 class SectionPageRenderTests(unittest.TestCase):
     def test_render_materials_table(self):
@@ -196,6 +227,39 @@ class SectionPageRenderTests(unittest.TestCase):
             with self.subTest(render=render.__name__):
                 html = render(SITE_CONFIG, None)
                 self.assertIn("compiled yet", html)
+
+    def test_pages_render_every_week_of_history(self):
+        sections = [
+            {"week_start": "2026-06-29", "week_end": "2026-07-05",
+             "payload": {"products": [{"product": "ATUM-X", "manufacturer": "TE Connectivity"}]}},
+            {"week_start": "2026-06-22", "week_end": "2026-06-28",
+             "payload": {"products": [{"product": "Versafit V4", "manufacturer": "TE Connectivity"}]}},
+        ]
+        html = site_build.render_products(SITE_CONFIG, sections)
+        self.assertIn("ATUM-X", html)
+        self.assertIn("Versafit V4", html)  # last week's row is still on the page
+        self.assertIn('data-week="2026-06-22"', html)
+        self.assertIn("2 weekly compilations", html)
+
+    def test_a_subject_repeated_across_weeks_is_kept_once_at_its_newest_week(self):
+        sections = [
+            {"week_start": "2026-06-29", "week_end": "2026-07-05",
+             "payload": {"regulations": [{"regulation": "UL 224", "change": "new wording"}]}},
+            {"week_start": "2026-06-22", "week_end": "2026-06-28",
+             "payload": {"regulations": [{"regulation": "UL 224", "change": "old wording"}]}},
+        ]
+        html = site_build.render_regulatory(SITE_CONFIG, sections)
+        self.assertEqual(html.count("UL 224"), 1)
+        self.assertIn("new wording", html)
+        self.assertNotIn("old wording", html)
+
+    def test_a_single_section_still_renders(self):
+        """build_site passes a list; the renderers also accept one section (or None)."""
+        section = {"week_start": "2026-06-22", "week_end": "2026-06-28",
+                   "payload": {"materials": [{"application": "PTFE catheter liner"}]}}
+        html = site_build.render_materials(SITE_CONFIG, section)
+        self.assertIn("PTFE catheter liner", html)
+        self.assertIn("1 weekly compilation", html)
 
     def test_nav_carries_all_three_section_pages(self):
         hrefs = [href for href, _ in site_build.NAV]

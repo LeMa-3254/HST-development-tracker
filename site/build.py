@@ -14,11 +14,11 @@ if str(ROOT) not in sys.path:
 
 from config import load_config
 from store.db import (
+    all_material_requirements,
+    all_notable_products,
+    all_regulatory_watch,
     connect,
     included_items,
-    latest_material_requirements,
-    latest_notable_products,
-    latest_regulatory_watch,
     latest_weekly_summary,
     weekly_summaries,
 )
@@ -189,6 +189,8 @@ table.matreq th{font-family:var(--mono);font-size:.68rem;letter-spacing:.08em;te
   color:var(--muted);text-align:left;padding:12px 16px;border-bottom:1px solid var(--line-strong);white-space:nowrap}
 table.matreq td{padding:13px 16px;border-bottom:1px solid var(--line);color:var(--ink-soft);vertical-align:top}
 table.matreq tr:last-child td{border-bottom:0}
+table.matreq tr[hidden]{display:none}
+table.matreq td.week{font-family:var(--mono);font-size:.76rem;color:var(--faint);white-space:nowrap}
 table.matreq td.app{color:var(--ink);font-weight:600}
 table.matreq td.chal{color:var(--signal-ink)}
 table.matreq a{color:var(--signal-ink);border-bottom:1px solid var(--signal-line)}
@@ -245,9 +247,9 @@ def build_site(config_path: str = "targeting.yaml", db_path: str = "data/tracker
         items = included_items(db)
         latest_weekly = latest_weekly_summary(db)
         all_weeklies = weekly_summaries(db)
-        materials = latest_material_requirements(db)
-        products = latest_notable_products(db)
-        regulations = latest_regulatory_watch(db)
+        materials = all_material_requirements(db)
+        products = all_notable_products(db)
+        regulations = all_regulatory_watch(db)
 
     # The home feed and RSS are a *current* feed: show only recent items so old archive
     # entries don't dominate the relevance ranking. The Archive and JSON export keep everything.
@@ -644,10 +646,15 @@ def render_weekly_entry(summary) -> str:
 # `columns` is (header, payload key, css class); the css class drives the two
 # emphasis styles already in table.matreq — "app" for the row's subject and
 # "chal" for the consequence/challenge column.
+#
+# These pages are cumulative: they render every week the section has ever been
+# compiled, not just the current one, so a product launch or a standards change
+# stays on the page after its week rolls off. A Week column carries the
+# provenance and a client-side week/keyword filter keeps a long history usable.
 # ---------------------------------------------------------------------------
 def render_section_page(
     config: dict,
-    section,
+    sections,
     *,
     page: str,
     eyebrow: str,
@@ -657,28 +664,45 @@ def render_section_page(
     columns: list[tuple[str, str, str]],
 ) -> str:
     site = config["site"]
-    rows = (section or {}).get("payload", {}).get(payload_key, []) if section else []
-    when = ""
-    if section:
-        when = f'<p class="section-note">Compiled {escape(str(section.get("week_start", "")))} &mdash; {escape(str(section.get("week_end", "")))}</p>'
+    weeks = normalize_sections(sections)
+    rows = history_rows(weeks, payload_key, subject_key=columns[0][1])
+
+    note = ""
+    if weeks:
+        span = (
+            f'{escape(str(weeks[-1].get("week_start", "")))} &mdash; {escape(str(weeks[0].get("week_end", "")))}'
+            if len(weeks) > 1
+            else f'{escape(str(weeks[0].get("week_start", "")))} &mdash; {escape(str(weeks[0].get("week_end", "")))}'
+        )
+        weeks_label = f"{len(weeks)} weekly compilation{'' if len(weeks) == 1 else 's'}"
+        note = f'<p class="section-note">Full history &middot; {weeks_label} &middot; {span}</p>'
 
     if rows:
-        head = "".join(f"<th>{escape(header)}</th>" for header, _, _ in columns) + "<th>Source</th>"
+        head = "<th>Week</th>" + "".join(f"<th>{escape(header)}</th>" for header, _, _ in columns) + "<th>Source</th>"
         body = "".join(
-            "    <tr>"
+            f'    <tr data-week="{escape(week_start)}">'
+            + f'<td class="week">{escape(week_start)}</td>'
             + "".join(
                 f'<td{f" class={chr(34)}{css}{chr(34)}" if css else ""}>{escape(str(row.get(key, "")))}</td>'
                 for _, key, css in columns
             )
             + f"<td>{_source_link(row.get('source_url'))}</td></tr>"
-            for row in rows
+            for week_start, row in rows
         )
-        content = f"""<div class="table-wrap"><table class="matreq">
+        table = f"""<div class="table-wrap"><table class="matreq" id="history">
   <thead><tr>{head}</tr></thead>
   <tbody>
 {body}
   </tbody>
 </table></div>"""
+        week_options = option_list([week_start for week_start, _ in _unique_weeks(rows)])
+        content = f"""<section class="toolbar" style="grid-template-columns:2fr 1fr">
+    <label>Search<input id="row-search" type="search" autocomplete="off" placeholder="Keyword…"></label>
+    <label>Week<select id="row-week"><option value="">All weeks</option>{week_options}</select></label>
+  </section>
+  <p id="row-count" class="result-count">{len(rows)} row{"" if len(rows) == 1 else "s"}</p>
+  {table}
+  <p class="empty" id="row-empty" hidden>No matching rows.</p>"""
     else:
         content = f'<p class="empty">No {heading.lower()} compiled yet — this section is generated on the weekly run.</p>'
 
@@ -687,7 +711,7 @@ def render_section_page(
     <p class="eyebrow"><span class="br">[</span> {escape(eyebrow)} <span class="br">]</span></p>
     <h1>{escape(heading)}</h1>
     <p>{escape(blurb)}</p>
-    {when}
+    {note}
   </section>
   <section class="feed">{content}</section>
 </main>"""
@@ -696,13 +720,83 @@ def render_section_page(
         page_title=f'{site.get("name", "HST Intelligence")} — {heading}',
         active=page,
         main_html=main,
+        body_script=HISTORY_FILTER_SCRIPT if rows else "",
     )
 
 
-def render_materials(config: dict, section) -> str:
+HISTORY_FILTER_SCRIPT = """<script>
+    const table = document.querySelector("#history");
+    const rows = table ? Array.from(table.tBodies[0].rows) : [];
+    const rowSearch = document.querySelector("#row-search");
+    const rowWeek = document.querySelector("#row-week");
+    const rowCount = document.querySelector("#row-count");
+    const rowEmpty = document.querySelector("#row-empty");
+    function filterRows(){
+      const q = rowSearch.value.trim().toLowerCase();
+      let shown = 0;
+      rows.forEach(row => {
+        const match = (!rowWeek.value || row.dataset.week === rowWeek.value)
+          && (!q || row.textContent.toLowerCase().includes(q));
+        row.hidden = !match;
+        if (match) shown++;
+      });
+      rowCount.textContent = shown + (shown === 1 ? " row" : " rows");
+      rowEmpty.hidden = shown !== 0;
+    }
+    if (table){
+      rowSearch.addEventListener("input", filterRows);
+      rowWeek.addEventListener("change", filterRows);
+    }
+  </script>"""
+
+
+def normalize_sections(sections) -> list[dict]:
+    """Accept a list of weekly sections, a single section, or None; return newest-first."""
+    if not sections:
+        return []
+    weeks = list(sections) if isinstance(sections, list) else [sections]
+    return sorted((w for w in weeks if w), key=lambda w: str(w.get("week_start", "")), reverse=True)
+
+
+def history_rows(weeks: list[dict], payload_key: str, *, subject_key: str) -> list[tuple[str, dict]]:
+    """Flatten every week's rows into one newest-first list of (week_start, row).
+
+    The weekly runs re-report a stable set of subjects — the same tubing families and the
+    same open standards turn up week after week — so a raw concatenation would be mostly
+    repetition. Rows are keyed on their subject column and kept once, at the most recent
+    week that reported them, which is also the freshest wording of the details."""
+    out: list[tuple[str, dict]] = []
+    seen: set[str] = set()
+    for week in weeks:
+        week_start = str(week.get("week_start", ""))
+        payload = week.get("payload") or {}
+        for row in payload.get(payload_key, []) or []:
+            if not isinstance(row, dict):
+                continue
+            key = re.sub(r"[^a-z0-9]+", "", str(row.get(subject_key, "")).lower())
+            if key and key in seen:
+                continue
+            if key:
+                seen.add(key)
+            out.append((week_start, row))
+    return out
+
+
+def _unique_weeks(rows: list[tuple[str, dict]]) -> list[tuple[str, dict]]:
+    """One entry per week present in `rows`, preserving the newest-first order."""
+    seen: set[str] = set()
+    unique = []
+    for week_start, row in rows:
+        if week_start not in seen:
+            seen.add(week_start)
+            unique.append((week_start, row))
+    return unique
+
+
+def render_materials(config: dict, sections) -> str:
     return render_section_page(
         config,
-        section,
+        sections,
         page="materials.html",
         eyebrow="materials",
         heading="Materials",
@@ -717,10 +811,10 @@ def render_materials(config: dict, section) -> str:
     )
 
 
-def render_products(config: dict, section) -> str:
+def render_products(config: dict, sections) -> str:
     return render_section_page(
         config,
-        section,
+        sections,
         page="products.html",
         eyebrow="notable products",
         heading="Notable Products",
@@ -736,10 +830,10 @@ def render_products(config: dict, section) -> str:
     )
 
 
-def render_regulatory(config: dict, section) -> str:
+def render_regulatory(config: dict, sections) -> str:
     return render_section_page(
         config,
-        section,
+        sections,
         page="regulatory.html",
         eyebrow="regulatory watch",
         heading="Regulatory Watch",

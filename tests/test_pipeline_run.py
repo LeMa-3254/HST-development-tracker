@@ -4,7 +4,7 @@ import unittest
 
 from models import Item
 import pipeline.run as pipeline_run
-from store.db import connect
+from store.db import connect, init_db, summarized_item_ids, upsert_weekly_summary
 
 
 class PipelineRunTests(unittest.TestCase):
@@ -74,6 +74,80 @@ class PipelineRunTests(unittest.TestCase):
         self.assertEqual(item_count, 1)
         self.assertEqual(run_count, 1)
         self.assertEqual(weekly_count, 1)
+
+    def test_summarized_item_ids_collects_across_digests_and_respects_before_week(self):
+        """synth.lookback_days makes windows overlap, so a digest must know what
+        earlier ones already narrated — but not what its own rerun narrated."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "tracker.db"
+            with connect(db_path) as db:
+                init_db(db)
+                upsert_weekly_summary(db, week_start="2026-06-01", week_end="2026-06-30",
+                                      synthesis_md="older", item_ids=["a", "b"])
+                upsert_weekly_summary(db, week_start="2026-06-08", week_end="2026-07-07",
+                                      synthesis_md="newer", item_ids=["c"])
+                self.assertEqual(summarized_item_ids(db), {"a", "b", "c"})
+                # rewriting the 06-08 digest must not treat its own items as covered
+                self.assertEqual(summarized_item_ids(db, before_week="2026-06-08"), {"a", "b"})
+
+    def test_an_item_already_narrated_is_not_narrated_again(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            config_path = root / "targeting.yaml"
+            db_path = root / "tracker.db"
+            week_start, _ = pipeline_run.last_complete_week_bounds()
+            config_path.write_text(
+                "\n".join([
+                    "site: {name: HST, description: d, url: 'https://x/'}",
+                    "targeting:",
+                    "  hst_core_terms: [heat shrink, shrink tubing]",
+                    "  adjacent_terms: [fluoropolymer]",
+                    "  context_terms: [wire]",
+                    "  exclude_terms: []",
+                    "  technical_boost_terms: [gel fraction]",
+                    "sources: {}",
+                    "scoring: {min_score: 70}",
+                    "dedup: {window_days: 30, similarity_threshold: 0.92, on_duplicate: drop}",
+                    "enrich: {max_items_per_run: 5}",
+                    "synth: {lookback_days: 30}",
+                ]),
+                encoding="utf-8",
+            )
+
+            def fake_ingest(_config):
+                return [Item.from_source(
+                    title="Dual-wall heat shrink tubing with adhesive liner",
+                    url="https://example.test/paper", source_type="test",
+                    source_name="Example", tier="A", published_date=week_start,
+                    abstract="Irradiated polyolefin tubing characterized by gel fraction.",
+                )], []
+
+            original = pipeline_run.ingest_enabled_sources
+            pipeline_run.ingest_enabled_sources = fake_ingest
+            try:
+                pipeline_run.run_pipeline(config_path=str(config_path), db_path=str(db_path),
+                                          weekly_synthesis=True)
+                with connect(db_path) as db:
+                    first = db.execute("SELECT COUNT(*) FROM weekly_summaries").fetchone()[0]
+                    covered = summarized_item_ids(db)
+                # a later run over the same overlapping window finds nothing new,
+                # so it must not write a second digest restating the same item
+                with connect(db_path) as db:
+                    upsert_weekly_summary(db, week_start="1999-01-01", week_end="1999-01-31",
+                                          synthesis_md="sentinel", item_ids=list(covered))
+                pipeline_run.run_pipeline(config_path=str(config_path), db_path=str(db_path),
+                                          weekly_synthesis=True)
+                with connect(db_path) as db:
+                    rows = db.execute(
+                        "SELECT synthesis_md FROM weekly_summaries WHERE week_start NOT IN ('1999-01-01')"
+                    ).fetchall()
+            finally:
+                pipeline_run.ingest_enabled_sources = original
+
+            self.assertEqual(first, 1)
+            self.assertTrue(covered)
+            # the pre-existing digest for this window is left alone, not rewritten
+            self.assertEqual(len(rows), 1)
 
     def test_per_source_max_age_overrides_the_global_ceiling(self):
         """Manufacturer newsrooms post every few months; the global 30-day ceiling dropped every

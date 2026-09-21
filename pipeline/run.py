@@ -29,6 +29,7 @@ from store.db import (
     init_db,
     log_run,
     recent_embedding_memory,
+    summarized_item_ids,
     upsert_items,
     upsert_material_requirements,
     upsert_notable_products,
@@ -67,14 +68,19 @@ def run_pipeline(
             # because this domain is too low-volume for a strict 7-day window to be worth reading.
             synth_start, synth_end = synthesis_bounds(config)
             weekly_items = included_items_between(db, start_date=synth_start, end_date=synth_end)
-            synthesis_md = synthesize_week(weekly_items, config, token_usage=token_usage)
-            upsert_weekly_summary(
-                db,
-                week_start=synth_start,
-                week_end=synth_end,
-                synthesis_md=synthesis_md,
-                item_ids=[item["id"] for item in weekly_items],
-            )
+            # Narrate only what no earlier digest has covered. The windows overlap by
+            # three weeks, so without this the same article is retold four times.
+            already = summarized_item_ids(db, before_week=synth_start)
+            new_items = [item for item in weekly_items if str(item["id"]) not in already]
+            if new_items:
+                synthesis_md = synthesize_week(new_items, config, token_usage=token_usage)
+                upsert_weekly_summary(
+                    db,
+                    week_start=synth_start,
+                    week_end=synth_end,
+                    synthesis_md=synthesis_md,
+                    item_ids=[item["id"] for item in new_items],
+                )
             # Three extra sections unique to this tracker (Materials, Notable Products,
             # Regulatory Watch). These use the Anthropic web_search tool, not the RSS feed path;
             # each generator returns None on disable/no-key/exception so a section outage never
@@ -218,14 +224,17 @@ def rescore_archive(
         if weekly_synthesis:
             week_start, week_end = synthesis_bounds(config)
             weekly_items = included_items_between(db, start_date=week_start, end_date=week_end)
-            synthesis_md = synthesize_week(weekly_items, config, token_usage=token_usage)
-            upsert_weekly_summary(
-                db,
-                week_start=week_start,
-                week_end=week_end,
-                synthesis_md=synthesis_md,
-                item_ids=[item["id"] for item in weekly_items],
-            )
+            already = summarized_item_ids(db, before_week=week_start)
+            new_items = [item for item in weekly_items if str(item["id"]) not in already]
+            if new_items:
+                synthesis_md = synthesize_week(new_items, config, token_usage=token_usage)
+                upsert_weekly_summary(
+                    db,
+                    week_start=week_start,
+                    week_end=week_end,
+                    synthesis_md=synthesis_md,
+                    item_ids=[item["id"] for item in new_items],
+                )
         log_run(
             db,
             counts={"rescored": len(rows), "included_before": before, "included_after": after},

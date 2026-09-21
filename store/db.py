@@ -142,6 +142,32 @@ def weekly_summaries(db: sqlite3.Connection) -> list[sqlite3.Row]:
     )
 
 
+def summarized_item_ids(db: sqlite3.Connection, *, before_week: str | None = None) -> set[str]:
+    """Every item id any stored synthesis has already narrated.
+
+    `synth.lookback_days` makes each window wider than the weekly cadence, so the
+    same item falls inside three or four consecutive windows. Excluding what has
+    already been narrated is what keeps a digest about the week rather than a
+    restatement of the month. `before_week` scopes the lookup to digests older
+    than the one being written, so re-running a week reconsiders its own items
+    instead of treating them as already covered."""
+    if before_week is None:
+        rows = db.execute("SELECT item_ids FROM weekly_summaries")
+    else:
+        rows = db.execute(
+            "SELECT item_ids FROM weekly_summaries WHERE week_start < ?", (before_week,)
+        )
+    seen: set[str] = set()
+    for (raw,) in rows:
+        try:
+            ids = json.loads(raw or "[]")
+        except (TypeError, json.JSONDecodeError):
+            continue
+        if isinstance(ids, list):
+            seen.update(str(i) for i in ids)
+    return seen
+
+
 def _upsert_section(
     db: sqlite3.Connection,
     table: str,

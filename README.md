@@ -23,10 +23,19 @@ A static site with:
   tubing manufacturer.
 
 The last three are generated weekly via LLM web search (the Anthropic server-side `web_search` tool),
-not from RSS. They are **cumulative**: each page renders every week ever compiled, newest first, with
-a Week column and a week/keyword filter, so a launch or a standards change stays on the page after its
-week rolls off. A subject that repeats across weeks (the same tubing family, the same open standard)
-is shown once, at the most recent week that reported it.
+not from RSS. They are **cumulative**: each page renders every week ever compiled, so a launch or a
+standards change stays on the page after its week rolls off, with a week/keyword filter to keep a long
+history usable.
+
+Each subject appears **once**, at its newest wording, with First seen / Last seen columns giving the
+range of weeks that reported it. This matters more than it sounds: the weekly runs re-derive a largely
+stable set of subjects, so one row per week would be almost entirely repetition — five compiled weeks
+produced 45 material rows for what are really nine tubing families. Matching the subject column as
+text does not collapse them, because the model rewords everything every week (`IEC 60684-2:2025 (4th
+edition)` one week, `IEC 60684-2 Ed. 4` the next). Each section therefore has an identity function in
+`site/build.py` keyed on what actually names the subject — the standard's designation, the product's
+part number, the polymer family. Note that generic fuzzy matching was tried and rejected: the
+discriminating token is often a single word, and similarity scoring merges PVDF with PTFE.
 
 Regulatory Watch is load-bearing rather than decorative: the standards bodies and
 regulators publish no reliable feeds, so that section is the only path by which their activity reaches

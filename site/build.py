@@ -649,8 +649,12 @@ def render_weekly_entry(summary) -> str:
 #
 # These pages are cumulative: they render every week the section has ever been
 # compiled, not just the current one, so a product launch or a standards change
-# stays on the page after its week rolls off. A Week column carries the
-# provenance and a client-side week/keyword filter keeps a long history usable.
+# stays on the page after its week rolls off. Each subject appears once, at its
+# newest wording, with the First/Last seen columns carrying the range of weeks
+# that reported it — the weekly runs re-derive a largely stable set of subjects,
+# so one row per week would be almost entirely repetition. See the identity
+# functions below for what counts as the same subject. A client-side
+# week/keyword filter keeps a long history usable.
 # ---------------------------------------------------------------------------
 def render_section_page(
     config: dict,
@@ -662,10 +666,11 @@ def render_section_page(
     blurb: str,
     payload_key: str,
     columns: list[tuple[str, str, str]],
+    identity,
 ) -> str:
     site = config["site"]
     weeks = normalize_sections(sections)
-    rows = history_rows(weeks, payload_key, subject_key=columns[0][1])
+    rows = history_rows(weeks, payload_key, identity=identity)
 
     note = ""
     if weeks:
@@ -678,16 +683,21 @@ def render_section_page(
         note = f'<p class="section-note">Full history &middot; {weeks_label} &middot; {span}</p>'
 
     if rows:
-        head = "<th>Week</th>" + "".join(f"<th>{escape(header)}</th>" for header, _, _ in columns) + "<th>Source</th>"
+        head = (
+            "<th>First seen</th><th>Last seen</th>"
+            + "".join(f"<th>{escape(header)}</th>" for header, _, _ in columns)
+            + "<th>Source</th>"
+        )
         body = "".join(
-            f'    <tr data-week="{escape(week_start)}">'
-            + f'<td class="week">{escape(week_start)}</td>'
+            f'    <tr data-weeks="{escape(" ".join(entry["weeks"]))}">'
+            + f'<td class="week">{escape(entry["first_seen"])}</td>'
+            + f'<td class="week">{escape(entry["last_seen"])}</td>'
             + "".join(
-                f'<td{f" class={chr(34)}{css}{chr(34)}" if css else ""}>{escape(str(row.get(key, "")))}</td>'
+                f'<td{f" class={chr(34)}{css}{chr(34)}" if css else ""}>{escape(str(entry["row"].get(key, "")))}</td>'
                 for _, key, css in columns
             )
-            + f"<td>{_source_link(row.get('source_url'))}</td></tr>"
-            for week_start, row in rows
+            + f"<td>{_source_link(entry['row'].get('source_url'))}</td></tr>"
+            for entry in rows
         )
         table = f"""<div class="table-wrap"><table class="matreq" id="history">
   <thead><tr>{head}</tr></thead>
@@ -695,7 +705,7 @@ def render_section_page(
 {body}
   </tbody>
 </table></div>"""
-        week_options = option_list([week_start for week_start, _ in _unique_weeks(rows)])
+        week_options = option_list(all_weeks(rows))
         content = f"""<section class="toolbar" style="grid-template-columns:2fr 1fr">
     <label>Search<input id="row-search" type="search" autocomplete="off" placeholder="Keyword…"></label>
     <label>Week<select id="row-week"><option value="">All weeks</option>{week_options}</select></label>
@@ -735,7 +745,8 @@ HISTORY_FILTER_SCRIPT = """<script>
       const q = rowSearch.value.trim().toLowerCase();
       let shown = 0;
       rows.forEach(row => {
-        const match = (!rowWeek.value || row.dataset.week === rowWeek.value)
+        const weeks = (row.dataset.weeks || "").split(" ");
+        const match = (!rowWeek.value || weeks.includes(rowWeek.value))
           && (!q || row.textContent.toLowerCase().includes(q));
         row.hidden = !match;
         if (match) shown++;
@@ -758,39 +769,143 @@ def normalize_sections(sections) -> list[dict]:
     return sorted((w for w in weeks if w), key=lambda w: str(w.get("week_start", "")), reverse=True)
 
 
-def history_rows(weeks: list[dict], payload_key: str, *, subject_key: str) -> list[tuple[str, dict]]:
-    """Flatten every week's rows into one newest-first list of (week_start, row).
+# ---------------------------------------------------------------------------
+# Subject identity.
+#
+# The weekly runs re-report a stable set of subjects, but the model rewords them
+# every week: the same standard arrives as "IEC 60684-2:2025 (4th edition)" and
+# "IEC 60684-2 Ed. 4", the same tubing family as "PEEK downhole oil & gas sleeve"
+# and "PEEK heat shrink for downhole oil/gas". Matching the subject column as
+# text therefore almost never fires, and generic fuzzy matching is worse than
+# useless here — the discriminating token is a single polymer or standard number,
+# so similarity scoring happily merges PVDF with PTFE.
+#
+# Each section instead gets an identity keyed on what actually names the subject.
+# ---------------------------------------------------------------------------
+_STANDARD = re.compile(
+    r"\b(UL|IEC|SAE|ASTM|ISO|EN|MIL|AMS)\b[\s\-]*"
+    r"((?:AMS-)?(?:DTL-)?(?:AS)?\d[\w\-]*(?:/\d+[A-Z]?)?)",
+    re.I,
+)
+_ACRONYM = re.compile(r"\b[A-Z]{3,}\b")
 
-    The weekly runs re-report a stable set of subjects — the same tubing families and the
-    same open standards turn up week after week — so a raw concatenation would be mostly
-    repetition. Rows are keyed on their subject column and kept once, at the most recent
-    week that reported them, which is also the freshest wording of the details."""
-    out: list[tuple[str, dict]] = []
-    seen: set[str] = set()
+
+def regulation_identity(row: dict) -> str:
+    """The standard's designation, edition and publication year stripped.
+
+    A new edition of UL 224 is still UL 224; the Change column carries what moved.
+    Agency rules (EPA, ECHA) carry no designation, so they fall back to the body
+    plus the acronyms that name the rule — TSCA/PFAS, REACH/PFAS — which stay put
+    while the surrounding prose is rewritten."""
+    text = str(row.get("regulation", ""))
+    match = _STANDARD.search(text)
+    if match:
+        body, number = match.group(1).upper(), match.group(2).upper()
+        number = re.sub(r":\d{4}.*$", "", number)
+        number = re.sub(r"(ED|EDITION)\.?\s*\d+$", "", number).strip("-. ")
+        return f"{body} {number}"
+    body = str(row.get("body", "")).upper().strip()
+    acronyms = sorted(set(_ACRONYM.findall(text)) - {body})
+    return f"{body}|{','.join(acronyms)}" if acronyms else f"{body}|{text.lower()[:40]}"
+
+
+_PRODUCT_STOP = {
+    "heat", "shrink", "shrinkable", "tubing", "tube", "sleeve", "sleeving",
+    "and", "the", "for", "with", "ratio", "wall", "new", "series", "high",
+}
+
+
+def _words(text: str) -> list[str]:
+    return [t for t in re.findall(r"[a-z0-9]+", str(text).lower()) if len(t) > 1]
+
+
+def product_identity(row: dict) -> str:
+    """A part number when the product has one, else manufacturer plus name words.
+
+    The part number alone carries the identity because the manufacturer drifts:
+    HS-101 is filed under "Insultab (Pexco)" one week and "Pexco" the next."""
+    maker = set(_words(row.get("manufacturer", "")))
+    name = [t for t in _words(row.get("product", "")) if t not in _PRODUCT_STOP and t not in maker]
+    model = sorted({t for t in name if any(c.isdigit() for c in t)})
+    if model:
+        return "model:" + "+".join(model)
+    return "+".join(sorted(maker)) + "|" + "+".join(sorted(set(name)))
+
+
+_POLYMERS = [
+    ("ptfe", r"\bptfe\b|polytetrafluoroethylene"),
+    ("fep", r"\bfep\b|fluorinated ethylene propylene"),
+    ("pvdf", r"\bpvdf\b|polyvinylidene|kynar"),
+    ("peek", r"\bpeek\b|polyether ether ketone"),
+    ("etfe", r"\betfe\b|ethylene.?tetrafluoroethylene"),
+    ("silicone", r"silicone"),
+    ("pet", r"\bpet\b|polyester"),
+    ("polyolefin", r"polyolefin|\bldpe\b|\beva\b|polyethylene"),
+]
+# Applications that define a row of the taxonomy on their own. The EV busbar entry
+# is named by its application, and which polymer the week picked for it varies.
+_APPLICATIONS = [
+    ("busbar", r"busbar"),
+    ("catheter", r"catheter|reflow|mandrel"),
+    ("downhole", r"downhole"),
+    ("marking", r"marking|general.purpose|identification"),
+]
+# Constructions that qualify a polymer rather than replace it, so that the
+# polyolefin dual-wall seal and the PTFE/FEP dual-shrink seal stay separate rows.
+_CONSTRUCTIONS = [("harness-seal", r"adhesive.lined|dual.wall|dual.shrink|harness seal")]
+
+
+def material_identity(row: dict) -> str:
+    """Application where the application names the row, else polymer family.
+
+    Materials is a taxonomy of tubing families rather than a feed of events: every
+    week re-derives the same nine or so rows. Keying on the polymer collapses the
+    week-to-week reshuffling of which use case gets mentioned first."""
+    text = f"{row.get('application', '')} {row.get('material_class', '')}".lower()
+    for name, pattern in _APPLICATIONS:
+        if re.search(pattern, text):
+            return name
+    polymers = [name for name, pattern in _POLYMERS if re.search(pattern, text)]
+    for name, pattern in _CONSTRUCTIONS:
+        if re.search(pattern, text):
+            return f"{'+'.join(polymers)}|{name}"
+    return "+".join(polymers) or text[:40]
+
+
+def history_rows(weeks: list[dict], payload_key: str, *, identity) -> list[dict]:
+    """Collapse every week's rows to one entry per subject, newest wording kept.
+
+    Returns newest-first dicts of {row, weeks, first_seen, last_seen}. A subject
+    that recurs every week is one row spanning a date range, not five rows."""
+    groups: dict[str, dict] = {}
+    order: list[str] = []
     for week in weeks:
         week_start = str(week.get("week_start", ""))
         payload = week.get("payload") or {}
         for row in payload.get(payload_key, []) or []:
             if not isinstance(row, dict):
                 continue
-            key = re.sub(r"[^a-z0-9]+", "", str(row.get(subject_key, "")).lower())
-            if key and key in seen:
-                continue
-            if key:
-                seen.add(key)
-            out.append((week_start, row))
+            key = identity(row) or week_start
+            if key not in groups:
+                groups[key] = {"row": row, "weeks": []}
+                order.append(key)
+            groups[key]["weeks"].append(week_start)
+    out = []
+    for key in order:
+        group = groups[key]
+        weeks_seen = sorted({w for w in group["weeks"] if w})
+        out.append({
+            "row": group["row"],
+            "weeks": weeks_seen,
+            "first_seen": weeks_seen[0] if weeks_seen else "",
+            "last_seen": weeks_seen[-1] if weeks_seen else "",
+        })
     return out
 
 
-def _unique_weeks(rows: list[tuple[str, dict]]) -> list[tuple[str, dict]]:
-    """One entry per week present in `rows`, preserving the newest-first order."""
-    seen: set[str] = set()
-    unique = []
-    for week_start, row in rows:
-        if week_start not in seen:
-            seen.add(week_start)
-            unique.append((week_start, row))
-    return unique
+def all_weeks(entries: list[dict]) -> list[str]:
+    """Every week represented across the entries, newest first — the filter options."""
+    return sorted({w for entry in entries for w in entry["weeks"]}, reverse=True)
 
 
 def render_materials(config: dict, sections) -> str:
@@ -808,6 +923,7 @@ def render_materials(config: dict, sections) -> str:
             ("Key properties", "key_properties", ""),
             ("Open challenge", "open_challenge", "chal"),
         ],
+        identity=material_identity,
     )
 
 
@@ -827,6 +943,7 @@ def render_products(config: dict, sections) -> str:
             ("Application", "application", ""),
             ("Announced", "announced", "chal"),
         ],
+        identity=product_identity,
     )
 
 
@@ -846,6 +963,7 @@ def render_regulatory(config: dict, sections) -> str:
             ("Status / date", "status_effective_date", ""),
             ("Impact on HST", "hst_impact", "chal"),
         ],
+        identity=regulation_identity,
     )
 
 

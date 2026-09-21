@@ -238,7 +238,7 @@ class SectionPageRenderTests(unittest.TestCase):
         html = site_build.render_products(SITE_CONFIG, sections)
         self.assertIn("ATUM-X", html)
         self.assertIn("Versafit V4", html)  # last week's row is still on the page
-        self.assertIn('data-week="2026-06-22"', html)
+        self.assertIn('data-weeks="2026-06-22"', html)
         self.assertIn("2 weekly compilations", html)
 
     def test_a_subject_repeated_across_weeks_is_kept_once_at_its_newest_week(self):
@@ -252,6 +252,60 @@ class SectionPageRenderTests(unittest.TestCase):
         self.assertEqual(html.count("UL 224"), 1)
         self.assertIn("new wording", html)
         self.assertNotIn("old wording", html)
+        # one row spanning both weeks, not one row per week
+        self.assertIn('data-weeks="2026-06-22 2026-06-29"', html)
+
+    def test_a_reworded_subject_still_collapses_to_one_row(self):
+        """The model rewords the same subject every week; matching text would miss it."""
+        sections = [
+            {"week_start": "2026-06-29", "week_end": "2026-07-05",
+             "payload": {"regulations": [{"regulation": "IEC 60684-2:2025 (4th edition)",
+                                          "body": "IEC", "change": "NEWEST-WORDING"}]}},
+            {"week_start": "2026-06-22", "week_end": "2026-06-28",
+             "payload": {"regulations": [{"regulation": "IEC 60684-2 Ed. 4",
+                                          "body": "IEC", "change": "PRIOR-WORDING"}]}},
+        ]
+        html = site_build.render_regulatory(SITE_CONFIG, sections)
+        self.assertIn("NEWEST-WORDING", html)
+        self.assertNotIn("PRIOR-WORDING", html)
+
+    def test_distinct_subjects_sharing_a_prefix_are_not_merged(self):
+        """AS23053C and AS23053/12B are different specs and must stay separate."""
+        sections = [{"week_start": "2026-06-22", "week_end": "2026-06-28",
+                     "payload": {"regulations": [
+                         {"regulation": "SAE AS23053C", "body": "SAE", "change": "one"},
+                         {"regulation": "SAE AS23053/12B", "body": "SAE", "change": "two"},
+                     ]}}]
+        html = site_build.render_regulatory(SITE_CONFIG, sections)
+        self.assertIn("one", html)
+        self.assertIn("two", html)
+
+    def test_a_product_keeps_its_identity_when_the_manufacturer_drifts(self):
+        """HS-101 is filed under "Insultab (Pexco)" one week and "Pexco" the next."""
+        sections = [
+            {"week_start": "2026-06-29", "week_end": "2026-07-05",
+             "payload": {"products": [{"product": "HS-101 Polyolefin Heat Shrink Tubing",
+                                       "manufacturer": "Insultab (Pexco)", "announced": "NEWEST-WORDING"}]}},
+            {"week_start": "2026-06-22", "week_end": "2026-06-28",
+             "payload": {"products": [{"product": "HS-101 Polyolefin Heat Shrink Tubing",
+                                       "manufacturer": "Pexco", "announced": "PRIOR-WORDING"}]}},
+        ]
+        html = site_build.render_products(SITE_CONFIG, sections)
+        self.assertIn("NEWEST-WORDING", html)
+        self.assertNotIn("PRIOR-WORDING", html)
+
+    def test_different_polymers_are_never_merged(self):
+        """Similarity scoring collapses PVDF into PTFE; identity keys must not."""
+        sections = [{"week_start": "2026-06-22", "week_end": "2026-06-28",
+                     "payload": {"materials": [
+                         {"application": "PVDF high-temperature aerospace sleeve",
+                          "material_class": "irradiated PVDF", "open_challenge": "pvdf-row"},
+                         {"application": "PTFE high-temperature chemical-resistant sleeve",
+                          "material_class": "expanded PTFE", "open_challenge": "ptfe-row"},
+                     ]}}]
+        html = site_build.render_materials(SITE_CONFIG, sections)
+        self.assertIn("pvdf-row", html)
+        self.assertIn("ptfe-row", html)
 
     def test_a_single_section_still_renders(self):
         """build_site passes a list; the renderers also accept one section (or None)."""

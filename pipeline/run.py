@@ -220,6 +220,10 @@ def rescore_archive(
         rows = list(db.execute("SELECT * FROM items"))
         before = sum(1 for row in rows if row["status"] == "included")
         rescored = [score_item(item_from_row(row), config, token_usage=token_usage) for row in rows]
+        # Scoring sets status from the score alone; a duplicate stays a duplicate.
+        for item in rescored:
+            if item.dup_of:
+                item.status = "dropped_dup"
         placeholders = [
             item for item in rescored
             if item.status == "included" and item.why_it_matters in (None, "", BOOTSTRAP_WHY)

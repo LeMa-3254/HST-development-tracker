@@ -287,9 +287,15 @@ class PipelineRunTests(unittest.TestCase):
                 source_name="E", tier="A", abstract="stainless steel weld optimization",
             )
             offtopic.status = "included"
+            duplicate = Item.from_source(
+                title="Heat shrink tubing gel fraction repost", url="https://x/p2", source_type="t",
+                source_name="E", tier="A", abstract="shrink tubing crosslinking on wire samples",
+            )
+            duplicate.status = "dropped_dup"
+            duplicate.dup_of = on_topic.id
             with connect(db_path) as db:
                 init_db(db)
-                upsert_items(db, [on_topic, offtopic])
+                upsert_items(db, [on_topic, offtopic, duplicate])
 
             pipeline_run.rescore_archive(config_path=str(config_path), db_path=str(db_path), weekly_synthesis=False)
 
@@ -297,6 +303,7 @@ class PipelineRunTests(unittest.TestCase):
                 statuses = dict(db.execute("SELECT title, status FROM items"))
             self.assertEqual(statuses["Heat shrink tubing gel fraction study"], "included")
             self.assertEqual(statuses["Machine learning for steel welding"], "dropped_lowscore")
+            self.assertEqual(statuses["Heat shrink tubing gel fraction repost"], "dropped_dup")
 
 
 if __name__ == "__main__":

@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
-from pipeline.model_clients import add_token_usage, build_anthropic_client, read_prompt
+from pipeline.model_clients import add_token_usage, build_anthropic_client, read_prompt, warn_once
 
 
 def generate_material_requirements(
@@ -85,7 +85,8 @@ def _generate_section(
             user_prompt=_user_prompt(config),
             max_searches=int(section.get("max_searches", 6)),
         )
-    except Exception:
+    except Exception as exc:
+        warn_once(f"section-{section_key}", f"Section {section_key} skipped: {exc}")
         return None  # a section outage must never break the weekly run
     add_token_usage(token_usage, usage_name, usage)
     return result

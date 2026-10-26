@@ -5,7 +5,7 @@ from datetime import date, timedelta
 import json
 from typing import Any
 
-from pipeline.model_clients import add_token_usage, build_anthropic_client, read_prompt
+from pipeline.model_clients import add_token_usage, build_anthropic_client, read_prompt, warn_once
 
 
 def last_complete_week_bounds(today: date | None = None) -> tuple[str, str]:
@@ -58,7 +58,8 @@ def synthesize_week(
             user_prompt=json.dumps([item_payload(item) for item in items], indent=2, sort_keys=True),
             max_tokens=1600,
         )
-    except Exception:
+    except Exception as exc:
+        warn_once("synthesis-failed", f"Model synthesis failed, using fallback digest: {exc}")
         return fallback_synthesis(items)
     add_token_usage(token_usage, "anthropic_synthesis", usage)
     return str(result.get("synthesis_md") or result.get("synthesis") or fallback_synthesis(items))

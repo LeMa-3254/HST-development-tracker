@@ -4,7 +4,7 @@ import json
 from typing import Any
 
 from models import Item
-from pipeline.model_clients import add_token_usage, build_anthropic_client, read_prompt
+from pipeline.model_clients import add_token_usage, build_anthropic_client, read_prompt, warn_once
 from sources.base import vocabulary_match
 
 
@@ -20,6 +20,7 @@ def score_item(
         try:
             return score_item_with_model(item, config, client=client, token_usage=token_usage)
         except Exception as exc:
+            warn_once("scoring-failed", f"Model scoring failed, using keyword bootstrap: {exc}")
             bootstrap_score_item(item, config)
             item.score_reason = f"Model scoring failed; bootstrap fallback used: {exc}"
             return item

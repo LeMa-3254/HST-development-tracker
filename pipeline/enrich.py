@@ -4,7 +4,9 @@ import json
 from typing import Any
 
 from models import Item
-from pipeline.model_clients import add_token_usage, build_anthropic_client, read_prompt
+from pipeline.model_clients import add_token_usage, build_anthropic_client, read_prompt, warn_once
+
+BOOTSTRAP_WHY = "Potentially relevant to heat shrink tubing materials, processing, or qualification."
 
 
 def enrich_items(
@@ -27,7 +29,8 @@ def enrich_items(
         previous_why = item.why_it_matters
         try:
             enrich_item_with_model(item, config, client=client, token_usage=token_usage)
-        except Exception:
+        except Exception as exc:
+            warn_once("enrich-failed", f"Model enrichment failed, keeping placeholder text: {exc}")
             item.summary = previous_summary
             item.why_it_matters = previous_why
     return items
@@ -50,16 +53,13 @@ def enrich_item_with_model(
     )
     add_token_usage(token_usage, "anthropic_enrichment", usage)
     item.summary = str(result.get("summary") or item.abstract or item.title)
-    item.why_it_matters = str(
-        result.get("why_it_matters")
-        or "Potentially relevant to heat shrink tubing materials, processing, or qualification."
-    )
+    item.why_it_matters = str(result.get("why_it_matters") or BOOTSTRAP_WHY)
     return item
 
 
 def bootstrap_enrich_item(item: Item) -> Item:
     item.summary = item.abstract or item.title
-    item.why_it_matters = "Potentially relevant to heat shrink tubing materials, processing, or qualification."
+    item.why_it_matters = BOOTSTRAP_WHY
     return item
 
 

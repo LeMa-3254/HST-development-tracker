@@ -13,7 +13,7 @@ from config import load_config
 from models import Item
 from pipeline.dedup import deduplicate_items
 from pipeline.embeddings import embed_items
-from pipeline.enrich import enrich_items
+from pipeline.enrich import BOOTSTRAP_WHY, enrich_items
 from pipeline.ingest import ingest_enabled_sources
 from pipeline.score import score_item
 from pipeline.sections import (
@@ -211,7 +211,8 @@ def rescore_archive(
 
     Drops items that no longer pass and reassigns the theme, so a targeting change applies
     to the whole archive (not just newly fetched items). Preserves existing summaries,
-    why-it-matters text, and embeddings."""
+    why-it-matters text, and embeddings, except where an included item still carries the
+    bootstrap placeholder from a run whose model calls failed; those are re-enriched."""
     config = load_config(config_path)
     token_usage: dict = {}
     with connect(db_path) as db:
@@ -219,6 +220,11 @@ def rescore_archive(
         rows = list(db.execute("SELECT * FROM items"))
         before = sum(1 for row in rows if row["status"] == "included")
         rescored = [score_item(item_from_row(row), config, token_usage=token_usage) for row in rows]
+        placeholders = [
+            item for item in rescored
+            if item.status == "included" and item.why_it_matters in (None, "", BOOTSTRAP_WHY)
+        ]
+        enrich_items(placeholders, config, token_usage=token_usage)
         upsert_items(db, rescored)
         after = sum(1 for item in rescored if item.status == "included")
         if weekly_synthesis:
